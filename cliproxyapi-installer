@@ -7,10 +7,19 @@
 set -euo pipefail
 
 # Configuration
-REPO_OWNER="router-for-me"
-REPO_NAME="CLIProxyAPI"
+# Override defaults via environment variables:
+#   BACKEND_REPO_OWNER / BACKEND_REPO_NAME
+#   PANEL_REPO_OWNER / PANEL_REPO_NAME
+BACKEND_REPO_OWNER="${BACKEND_REPO_OWNER:-DevDynamo2024}"
+BACKEND_REPO_NAME="${BACKEND_REPO_NAME:-CLIProxyAPI}"
+PANEL_REPO_OWNER="${PANEL_REPO_OWNER:-DevDynamo2024}"
+PANEL_REPO_NAME="${PANEL_REPO_NAME:-Cli-Proxy-API-Management-Center}"
+
+BACKEND_REPO_URL="https://github.com/${BACKEND_REPO_OWNER}/${BACKEND_REPO_NAME}"
+PANEL_REPO_URL="https://github.com/${PANEL_REPO_OWNER}/${PANEL_REPO_NAME}"
+
 INSTALL_DIR="$HOME/cliproxyapi"
-API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
+API_URL="https://api.github.com/repos/${BACKEND_REPO_OWNER}/${BACKEND_REPO_NAME}/releases/latest"
 SCRIPT_NAME="cliproxyapi-installer"
 
 # Colors for output
@@ -49,7 +58,7 @@ show_authentication_info() {
     echo
     echo -e "${BLUE}CLIProxyAPI supports authentication for multiple providers:${NC}"
     echo
-    echo -e "${GREEN}📚 Full Documentation:${NC} https://github.com/router-for-me/CLIProxyAPI"
+    echo -e "${GREEN}📚 Full Documentation:${NC} ${BACKEND_REPO_URL}"
     echo
     echo -e "${YELLOW}Authentication Commands:${NC}"
     echo
@@ -630,6 +639,11 @@ setup_config() {
     # PRIORITY 4: Only create from example if NO existing config found
     if [[ -f "$example_config" ]]; then
         cp "$example_config" "$config"
+
+        # Point the management panel updater to the configured panel repository.
+        if grep -q "panel-github-repository:" "$config"; then
+            sed -i "s|^\\(\\s*panel-github-repository:\\s*\\)\"[^\"]*\"|\\1\"${PANEL_REPO_URL}\"|g" "$config"
+        fi
 
         # Generate and replace API key
         local generated_key1

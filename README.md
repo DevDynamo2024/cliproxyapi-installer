@@ -1,6 +1,6 @@
 # CLIProxyAPI Linux Installer
 
-A comprehensive Linux installation script for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) that automates installation, upgrades, and management of the CLIProxyAPI service.
+A comprehensive Linux installation script for [CLIProxyAPI](https://github.com/DevDynamo2024/CLIProxyAPI) that automates installation, upgrades, and management of the CLIProxyAPI service.
 
 ## Features
 
@@ -24,6 +24,21 @@ curl -fsSL https://raw.githubusercontent.com/brokechubb/cliproxyapi-installer/re
 # Or clone and run manually
 git clone https://github.com/brokechubb/cliproxyapi-installer.git
 cd cliproxyapi-installer
+./cliproxyapi-installer
+```
+
+### Use custom backend/frontend repositories
+
+The installer defaults to:
+
+- Backend: `DevDynamo2024/CLIProxyAPI`
+- WebUI: `DevDynamo2024/Cli-Proxy-API-Management-Center`
+
+Override via environment variables:
+
+```bash
+BACKEND_REPO_OWNER=DevDynamo2024 BACKEND_REPO_NAME=CLIProxyAPI \
+PANEL_REPO_OWNER=DevDynamo2024 PANEL_REPO_NAME=Cli-Proxy-API-Management-Center \
 ./cliproxyapi-installer
 ```
 
