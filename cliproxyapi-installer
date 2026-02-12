@@ -384,17 +384,17 @@ fetch_release_info() {
 
     local http_code="000"
     if command -v curl >/dev/null 2>&1; then
-        local auth_args=()
         if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-            auth_args=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+            http_code="$(curl -sS -L -H "Authorization: Bearer ${GITHUB_TOKEN}" -o "$tmp" -w "%{http_code}" "$API_URL" || true)"
+        else
+            http_code="$(curl -sS -L -o "$tmp" -w "%{http_code}" "$API_URL" || true)"
         fi
-        http_code="$(curl -sS -L "${auth_args[@]}" -o "$tmp" -w "%{http_code}" "$API_URL" || true)"
     else
-        local wget_args=()
         if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-            wget_args=(--header="Authorization: Bearer ${GITHUB_TOKEN}")
+            wget -qO "$tmp" --header="Authorization: Bearer ${GITHUB_TOKEN}" "$API_URL" || true
+        else
+            wget -qO "$tmp" "$API_URL" || true
         fi
-        wget -qO "$tmp" "${wget_args[@]}" "$API_URL" || true
         [[ -s "$tmp" ]] && http_code="200"
     fi
 
@@ -427,7 +427,18 @@ fallback_release_data_from_web() {
     local final_url=""
 
     if command -v curl >/dev/null 2>&1; then
-        final_url="$(curl -sS -L -o /dev/null -w "%{url_effective}" "$latest_url" || true)"
+        # Prefer Location header from the initial redirect to avoid relying on url_effective parsing.
+        local location=""
+        location="$(curl -fsSI "$latest_url" 2>/dev/null | awk -F': ' 'tolower($1)=="location"{print $2}' | tr -d '\r' | tail -n 1 || true)"
+        if [[ -n "$location" ]]; then
+            if [[ "$location" == http* ]]; then
+                final_url="$location"
+            else
+                final_url="https://github.com${location}"
+            fi
+        else
+            final_url="$(curl -fsS -L -o /dev/null -w "%{url_effective}" "$latest_url" || true)"
+        fi
     else
         # wget doesn't expose the final redirected URL cleanly; best-effort: fetch HTML and grep.
         final_url="$(wget -qO- "$latest_url" | grep -oE 'https://github.com/[^ ]+/releases/tag/v[0-9]+\\.[0-9]+\\.[0-9]+' | head -n 1 || true)"
