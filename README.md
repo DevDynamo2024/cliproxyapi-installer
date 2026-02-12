@@ -2,6 +2,8 @@
 
 A comprehensive Linux installation script for [CLIProxyAPI](https://github.com/DevDynamo2024/CLIProxyAPI) that automates installation, upgrades, and management of the CLIProxyAPI service.
 
+> Note: This installer is **Linux-only**. On macOS/Windows, run it inside a Linux VM/container (or WSL) instead.
+
 ## Features
 
 - 🚀 **Automatic Installation** - Detects your Linux architecture and downloads the latest version
@@ -19,10 +21,10 @@ A comprehensive Linux installation script for [CLIProxyAPI](https://github.com/D
 
 ```bash
 # Download and run the installer
-curl -fsSL https://raw.githubusercontent.com/brokechubb/cliproxyapi-installer/refs/heads/master/cliproxyapi-installer | bash
+curl -fsSL https://raw.githubusercontent.com/DevDynamo2024/cliproxyapi-installer/refs/heads/master/cliproxyapi-installer | bash
 
 # Or clone and run manually
-git clone https://github.com/brokechubb/cliproxyapi-installer.git
+git clone https://github.com/DevDynamo2024/cliproxyapi-installer.git
 cd cliproxyapi-installer
 ./cliproxyapi-installer
 ```
