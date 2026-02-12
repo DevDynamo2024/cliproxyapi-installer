@@ -25,6 +25,7 @@ DEFAULT_INSTALL_DIR="$HOME/cliproxyapi"
 INSTALL_DIR="${CLIPROXYAPI_INSTALL_DIR:-${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}}"
 API_URL="https://api.github.com/repos/${BACKEND_REPO_OWNER}/${BACKEND_REPO_NAME}/releases/latest"
 SCRIPT_NAME="cliproxyapi-installer"
+GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -36,23 +37,23 @@ NC='\033[0m' # No Color
 
 # Logging functions
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1" >&2
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1" >&2
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1" >&2
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1" >&2
 }
 
 log_step() {
-    echo -e "${CYAN}[STEP]${NC} $1"
+    echo -e "${CYAN}[STEP]${NC} $1" >&2
 }
 
 # Guard: this installer is Linux-only
@@ -377,20 +378,88 @@ check_dependencies() {
 # Fetch latest release info from GitHub API
 fetch_release_info() {
     log_info "Fetching latest release information..."
-    
-    local release_info
+
+    local tmp
+    tmp="$(mktemp)"
+
+    local http_code="000"
     if command -v curl >/dev/null 2>&1; then
-        release_info=$(curl -s "$API_URL")
+        local auth_args=()
+        if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            auth_args=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+        fi
+        http_code="$(curl -sS -L "${auth_args[@]}" -o "$tmp" -w "%{http_code}" "$API_URL" || true)"
     else
-        release_info=$(wget -qO- "$API_URL")
+        local wget_args=()
+        if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            wget_args=(--header="Authorization: Bearer ${GITHUB_TOKEN}")
+        fi
+        wget -qO "$tmp" "${wget_args[@]}" "$API_URL" || true
+        [[ -s "$tmp" ]] && http_code="200"
     fi
-    
-    if [[ -z "$release_info" ]]; then
-        log_error "Failed to fetch release information from GitHub API"
-        exit 1
+
+    local release_info
+    release_info="$(cat "$tmp" 2>/dev/null || true)"
+    rm -f "$tmp"
+
+    if [[ "$http_code" != "200" || -z "$release_info" ]]; then
+        log_error "Failed to fetch release information from GitHub API (HTTP ${http_code})"
+        log_error "URL: $API_URL"
+        if echo "$release_info" | grep -qi "rate limit"; then
+            log_error "GitHub API rate limit exceeded. Set GITHUB_TOKEN (or GH_TOKEN) to increase limits, or wait and retry."
+        fi
+        if [[ -n "$release_info" ]]; then
+            log_error "GitHub API response (truncated): $(echo "$release_info" | tr '\n' ' ' | head -c 240)"
+        fi
+        return 1
     fi
-    
+
     echo "$release_info"
+}
+
+# Fallback when GitHub API is blocked/limited: resolve latest release tag via web redirect
+fallback_release_data_from_web() {
+    local os_arch="$1"
+
+    log_warning "Falling back to GitHub web release redirect (no API)..."
+
+    local latest_url="https://github.com/${BACKEND_REPO_OWNER}/${BACKEND_REPO_NAME}/releases/latest"
+    local final_url=""
+
+    if command -v curl >/dev/null 2>&1; then
+        final_url="$(curl -sS -L -o /dev/null -w "%{url_effective}" "$latest_url" || true)"
+    else
+        # wget doesn't expose the final redirected URL cleanly; best-effort: fetch HTML and grep.
+        final_url="$(wget -qO- "$latest_url" | grep -oE 'https://github.com/[^ ]+/releases/tag/v[0-9]+\\.[0-9]+\\.[0-9]+' | head -n 1 || true)"
+    fi
+
+    local version
+    version="$(echo "$final_url" | grep -oE 'v[0-9]+\\.[0-9]+\\.[0-9]+' | head -n 1 | sed 's/^v//')"
+    if [[ -z "$version" ]]; then
+        log_error "Failed to resolve latest release version via web redirect."
+        log_error "Tried: $latest_url"
+        return 1
+    fi
+
+    local expected_filename="CLIProxyAPI_${version}_${os_arch}"
+    if [[ "$os_arch" == windows_* ]]; then
+        expected_filename="${expected_filename}.zip"
+    else
+        expected_filename="${expected_filename}.tar.gz"
+    fi
+
+    local download_url="https://github.com/${BACKEND_REPO_OWNER}/${BACKEND_REPO_NAME}/releases/download/v${version}/${expected_filename}"
+
+    # Verify the asset exists (best-effort).
+    if command -v curl >/dev/null 2>&1; then
+        if ! curl -fsSIL "$download_url" >/dev/null 2>&1; then
+            log_error "Resolved version ${version}, but asset not found: ${expected_filename}"
+            log_error "URL: $download_url"
+            return 1
+        fi
+    fi
+
+    echo "${version}|${download_url}"
 }
 
 # Extract version and download URL from release info
@@ -402,8 +471,11 @@ extract_release_info() {
     version=$(echo "$release_info" | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/^v//')
     
     if [[ -z "$version" ]]; then
+        if echo "$release_info" | grep -qi "rate limit"; then
+            log_error "GitHub API rate limit exceeded while parsing release info."
+        fi
         log_error "Failed to extract version from release info"
-        exit 1
+        return 1
     fi
     
     local expected_filename="CLIProxyAPI_${version}_${os_arch}"
@@ -420,7 +492,7 @@ extract_release_info() {
     
     if [[ -z "$download_url" ]]; then
         log_error "Failed to find download URL for ${expected_filename}"
-        exit 1
+        return 1
     fi
     
     echo "${version}|${download_url}"
@@ -687,7 +759,7 @@ download_file() {
     log_info "Downloading $(basename "$url")..."
     
     if command -v curl >/dev/null 2>&1; then
-        curl -L -o "$output" "$url"
+        curl -fL -o "$output" "$url"
     else
         wget -O "$output" "$url"
     fi
@@ -786,15 +858,28 @@ install_cliproxyapi() {
     os_arch=$(detect_linux_arch)
     log_step "Detected platform: $os_arch"
     
-    # Fetch release info
-    local release_info
-    release_info=$(fetch_release_info)
-    
-    # Extract version and download URL
-    local release_data
-    release_data=$(extract_release_info "$release_info" "$os_arch")
-    local version=$(echo "$release_data" | cut -d'|' -f1)
-    local download_url=$(echo "$release_data" | cut -d'|' -f2)
+    # Fetch release info (API first, then fallback to web if API is blocked/limited)
+    local release_data=""
+    local release_info=""
+    if release_info="$(fetch_release_info)"; then
+        if ! release_data="$(extract_release_info "$release_info" "$os_arch")"; then
+            log_warning "Failed to parse release info from GitHub API; trying fallback..."
+            release_data="$(fallback_release_data_from_web "$os_arch")" || {
+                log_error "Could not determine latest release."
+                exit 1
+            }
+        fi
+    else
+        release_data="$(fallback_release_data_from_web "$os_arch")" || {
+            log_error "Could not determine latest release."
+            exit 1
+        }
+    fi
+
+    local version
+    local download_url
+    version="$(echo "$release_data" | cut -d'|' -f1)"
+    download_url="$(echo "$release_data" | cut -d'|' -f2)"
     
     log_step "Latest version: $version"
     
