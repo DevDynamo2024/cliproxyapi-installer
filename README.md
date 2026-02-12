@@ -29,6 +29,22 @@ cd cliproxyapi-installer
 ./cliproxyapi-installer
 ```
 
+### Use a custom installation directory
+
+By default CLIProxyAPI is installed to `~/cliproxyapi`.
+
+Override with an option:
+
+```bash
+./cliproxyapi-installer --install-dir "$HOME/apps/cliproxyapi" install
+```
+
+Or with an environment variable:
+
+```bash
+CLIPROXYAPI_INSTALL_DIR="$HOME/apps/cliproxyapi" ./cliproxyapi-installer install
+```
+
 ### Use custom backend/frontend repositories
 
 The installer defaults to:

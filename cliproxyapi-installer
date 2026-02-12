@@ -18,7 +18,11 @@ PANEL_REPO_NAME="${PANEL_REPO_NAME:-Cli-Proxy-API-Management-Center}"
 BACKEND_REPO_URL="https://github.com/${BACKEND_REPO_OWNER}/${BACKEND_REPO_NAME}"
 PANEL_REPO_URL="https://github.com/${PANEL_REPO_OWNER}/${PANEL_REPO_NAME}"
 
-INSTALL_DIR="$HOME/cliproxyapi"
+DEFAULT_INSTALL_DIR="$HOME/cliproxyapi"
+# Customise install directory via env var:
+#   - CLIPROXYAPI_INSTALL_DIR (preferred)
+#   - INSTALL_DIR (legacy/compatible)
+INSTALL_DIR="${CLIPROXYAPI_INSTALL_DIR:-${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}}"
 API_URL="https://api.github.com/repos/${BACKEND_REPO_OWNER}/${BACKEND_REPO_NAME}/releases/latest"
 SCRIPT_NAME="cliproxyapi-installer"
 
@@ -49,6 +53,18 @@ log_error() {
 
 log_step() {
     echo -e "${CYAN}[STEP]${NC} $1"
+}
+
+# Guard: this installer is Linux-only
+require_linux() {
+    local os
+    os="$(uname -s 2>/dev/null || echo unknown)"
+    if [[ "$os" != "Linux" ]]; then
+        log_error "This installer supports Linux only. Detected OS: ${os}"
+        log_info "You're likely on macOS/Windows. Run CLIProxyAPI on a Linux machine/VM/container (or WSL), then run this installer there."
+        log_info "For usage help: ./${SCRIPT_NAME} --help"
+        exit 1
+    fi
 }
 
 # Display authentication information for first-time setup
@@ -969,7 +985,47 @@ trap cleanup EXIT
 
 # Main script logic
 main() {
-    case "${1:-install}" in
+    local install_dir_override=""
+
+    # Parse options (before command).
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -d|--install-dir)
+                shift
+                install_dir_override="${1:-}"
+                shift || true
+                ;;
+            --install-dir=*)
+                install_dir_override="${1#*=}"
+                shift
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    if [[ -n "${install_dir_override}" ]]; then
+        INSTALL_DIR="${install_dir_override}"
+    fi
+
+    local cmd="${1:-install}"
+
+    # Most commands depend on Linux-specific tooling (systemd, GNU find/sort, etc.).
+    # Allow help and key generation to run anywhere.
+    case "$cmd" in
+        "-h"|"--help"|"generate-key")
+            ;;
+        *)
+            require_linux
+            ;;
+    esac
+
+    case "$cmd" in
         "install"|"upgrade")
             install_cliproxyapi
             ;;
@@ -1052,6 +1108,9 @@ Commands:
   uninstall          Remove CLIProxyAPI completely
   -h, --help         Show this help message
 
+Options:
+  -d, --install-dir PATH   Install directory (default: ~/cliproxyapi)
+
 Description:
   This Linux-specific script installs, upgrades, or removes CLIProxyAPI.
   It can be run from anywhere and automatically detects your Linux architecture.
@@ -1073,6 +1132,7 @@ Supported Platforms:
 
 Examples:
   $SCRIPT_NAME              # Install or upgrade
+  $SCRIPT_NAME -d ~/apps/cliproxyapi install
   $SCRIPT_NAME status       # Show current status
   $SCRIPT_NAME auth         # Show authentication info
   $SCRIPT_NAME check-config # Check configuration
